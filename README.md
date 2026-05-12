@@ -30,3 +30,14 @@ headers on every document, script, worker, and WASM response:
 Cross-Origin-Embedder-Policy: require-corp
 Cross-Origin-Opener-Policy: same-origin
 ```
+
+Local development and preview should use the project scripts:
+
+```sh
+pnpm dev
+pnpm build
+pnpm preview
+```
+
+Opening `build/index.html` directly or serving `build/` with a generic static
+file server will not work unless that server also sends the two headers above.

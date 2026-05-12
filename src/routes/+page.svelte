@@ -56,9 +56,11 @@
     ): VipsImage
     jpegsaveBuffer(options?: Record<string, unknown>): Uint8Array
     webpsaveBuffer(options?: Record<string, unknown>): Uint8Array
+    delete(): void
   }
 
   const tileSizes: TileSize[] = [256, 512, 1024]
+  const maxFullImageDimension = 4096
 
   let file: File | undefined = $state()
   let status = $state<Status>('idle')
@@ -76,6 +78,7 @@
   let outputSize = $state(0)
   let quality = $state(90)
   let tileSize = $state<TileSize>(512)
+  let includeFullImage = $state(true)
   let includeWebp = $state(false)
   let imageId = $state('')
   let errorMessage = $state('')
@@ -105,6 +108,12 @@
   }
 
   async function getVips() {
+    if (!crossOriginIsolated) {
+      throw new Error(
+        'wasm-vips requires cross-origin isolation. Serve this app with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp headers.'
+      )
+    }
+
     vipsPromise ??= import('wasm-vips').then(async ({ default: Vips }) =>
       Vips({
         locateFile: (path: string) => {
@@ -242,22 +251,53 @@
     serviceId: string
   ) {
     const selectedTileSize = tileSize
+    const selectedIncludeFullImage = includeFullImage
     const selectedFormats: TileFormat[] = includeWebp
       ? ['jpg', 'webp']
       : ['jpg']
     const plans = createTilePlans(image.width, image.height, selectedTileSize)
     const scaleFactors = plans.map((plan) => plan.scaleFactor)
+    const fullImageSize = calculateMaxFullImageSize(image.width, image.height)
+    const fullImageIsLimited =
+      fullImageSize.width !== image.width ||
+      fullImageSize.height !== image.height
 
     const tiles: GeneratedTile[] = []
     const totalRegions = plans.reduce(
       (sum, plan) => sum + plan.columns * plan.rows,
       0
     )
-    const totalTiles = totalRegions * selectedFormats.length
-    let completedTiles = 0
+    const fullImages = selectedIncludeFullImage ? selectedFormats.length : 0
+    const totalImages = totalRegions * selectedFormats.length + fullImages
+    let completedImages = 0
 
-    tileCount = totalTiles
+    tileCount = totalImages
     levelCount = plans.length
+
+    if (selectedIncludeFullImage) {
+      const fullImage = fullImageIsLimited
+        ? image.resize(fullImageSize.width / image.width, {
+            kernel: 'lanczos3',
+            vscale: fullImageSize.height / image.height
+          })
+        : image
+
+      for (const format of selectedFormats) {
+        tiles.push({
+          path: `full/max/0/default.${format}`,
+          bytes: encodeTile(fullImage, format, quality)
+        })
+
+        completedImages += 1
+        progress = (completedImages / totalImages) * 95
+      }
+
+      if (fullImage !== image) {
+        fullImage.delete()
+      }
+
+      await tickBrowser()
+    }
 
     for (const plan of plans) {
       for (let row = 0; row < plan.rows; row += 1) {
@@ -287,14 +327,22 @@
           const region = `${tileInfo.xr},${tileInfo.yr},${tileInfo.wr},${tileInfo.hr}`
           const size = `${tileInfo.ws},${tileInfo.hs}`
 
-          for (const format of selectedFormats) {
-            tiles.push({
-              path: `${region}/${size}/0/default.${format}`,
-              bytes: encodeTile(tile, format, quality)
-            })
+          try {
+            for (const format of selectedFormats) {
+              tiles.push({
+                path: `${region}/${size}/0/default.${format}`,
+                bytes: encodeTile(tile, format, quality)
+              })
 
-            completedTiles += 1
-            progress = (completedTiles / totalTiles) * 95
+              completedImages += 1
+              progress = (completedImages / totalImages) * 95
+            }
+          } finally {
+            if (tile !== sourceRegion) {
+              tile.delete()
+            }
+
+            sourceRegion.delete()
           }
 
           await tickBrowser()
@@ -310,10 +358,24 @@
       profile: 'level0',
       width: image.width,
       height: image.height,
+      ...(selectedIncludeFullImage && fullImageIsLimited
+        ? {
+            maxWidth: fullImageSize.width,
+            maxHeight: fullImageSize.height
+          }
+        : {}),
       extraFormats: selectedFormats.includes('webp') ? ['webp'] : [],
       preferredFormats: selectedFormats.includes('webp')
         ? ['webp', 'jpg']
         : ['jpg'],
+      sizes: selectedIncludeFullImage
+        ? [
+            {
+              width: fullImageSize.width,
+              height: fullImageSize.height
+            }
+          ]
+        : undefined,
       tiles: [
         {
           width: selectedTileSize,
@@ -337,6 +399,15 @@
     progress = 98
 
     return zipSync(files, { level: 0 })
+  }
+
+  function calculateMaxFullImageSize(width: number, height: number) {
+    const scale = Math.min(1, maxFullImageDimension / Math.max(width, height))
+
+    return {
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale))
+    }
   }
 
   function encodeTile(
@@ -488,17 +559,12 @@
 
 <main class="min-h-screen bg-stone-50 text-zinc-950">
   <section
-    class="mx-auto grid min-h-screen w-full max-w-6xl gap-8 px-5 py-6 md:grid-cols-[1.05fr_0.95fr] md:items-center md:px-8 lg:px-10"
+    class="mx-auto grid min-h-screen w-full max-w-6xl gap-8 px-5 py-6 md:grid-cols-2 md:items-center md:px-8 lg:px-10"
   >
     <div class="space-y-7">
       <div class="space-y-3">
-        <p
-          class="text-sm font-semibold tracking-wide text-emerald-700 uppercase"
-        >
-          Browser IIIF tiler
-        </p>
         <h1 class="max-w-2xl text-4xl leading-tight font-semibold md:text-6xl">
-          Drop an image. Download a Level 0 pyramid.
+          Drop an image. Download a IIIF tile pyramid.
         </h1>
         <p class="max-w-xl text-base leading-7 text-zinc-700">
           Images are processed in the browser with
@@ -507,26 +573,39 @@
             href="https://github.com/kleisauke/wasm-vips"
             rel="noreferrer"
             target="_blank">wasm-vips</a
-          >. The ZIP contains an
+          >. You can download the results as a ZIP file that contains an
           <a
             class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
             href="https://iiif.io/api/image/3.0/"
             rel="noreferrer"
             target="_blank">Image API 3</a
           >
-          <code>info.json</code> and pre-rendered JPG tiles, with optional
+          <code>info.json</code> file with static JPG tiles (and optionally,
           <a
             href="https://caniuse.com/webp"
             rel="noreferrer"
             target="_blank"
             class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
             >WebP</a
-          > tiles.
+          > tiles).
+        </p>
+
+        <p>
+          You can use any web server to serve the tiles in the ZIP file as a <a
+            href="https://iiif.io/api/image/3.0/compliance/#5-level-0-compliance"
+            class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
+            >Level 0 compliant IIIF Image API service</a
+          >. Make sure to
+          <a
+            href="https://iiif.io/api/image/3.0/#71-cors"
+            class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
+            >enable CORS headers</a
+          > for maximum compatibility with IIIF viewers and clients!
         </p>
       </div>
 
       <label
-        class="flex min-h-[330px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 bg-white px-6 py-8 text-center shadow-sm transition hover:border-emerald-600 hover:bg-emerald-50/40"
+        class="flex min-h-82 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 bg-white px-6 py-8 text-center shadow-sm transition hover:border-emerald-600 hover:bg-emerald-50/40"
         class:cursor-wait={isBusy}
         for="image-input"
         ondragenter={preventDefaults}
@@ -567,105 +646,141 @@
 
     <div class="space-y-4">
       <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <label
-          class="mb-2 block text-sm font-medium text-zinc-800"
-          for="image-id"
-        >
-          Image ID
-        </label>
-        <input
-          id="image-id"
-          class="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm transition outline-none placeholder:text-zinc-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20 disabled:bg-zinc-100"
-          type="url"
-          required
-          disabled={isBusy}
-          placeholder="https://example.org/iiif/my-image"
-          bind:value={imageId}
-        />
-      </div>
-
-      <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <div class="mb-3 flex items-center justify-between gap-4">
-          <p class="text-sm font-medium text-zinc-800">Tile size</p>
-          <span class="text-sm text-zinc-600 tabular-nums">{tileSize}px</span>
-        </div>
-        <div class="grid grid-cols-3 gap-2">
-          {#each tileSizes as size (size)}
-            <button
-              class="min-h-10 rounded-md border px-3 text-sm font-semibold transition disabled:cursor-not-allowed"
-              class:cursor-pointer={!isBusy}
-              class:border-emerald-700={tileSize === size}
-              class:bg-emerald-700={tileSize === size}
-              class:text-white={tileSize === size}
-              class:border-zinc-300={tileSize !== size}
-              class:bg-white={tileSize !== size}
-              class:text-zinc-800={tileSize !== size}
-              type="button"
-              disabled={isBusy}
-              onclick={() => {
-                tileSize = size
-                resetOutput()
-                message = file
-                  ? 'Tile size changed. Generate the pyramid again when ready.'
-                  : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
-              }}
-            >
-              {size}
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <div class="mb-3 flex items-center justify-between gap-4">
-          <label class="text-sm font-medium text-zinc-800" for="quality"
-            >Tile quality</label
-          >
-          <span class="text-sm text-zinc-600 tabular-nums">{quality}</span>
-        </div>
-        <input
-          id="quality"
-          class="w-full accent-emerald-700"
-          type="range"
-          min="50"
-          max="100"
-          step="1"
-          disabled={isBusy}
-          bind:value={quality}
-        />
-      </div>
-
-      <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-        <div class="flex items-start justify-between gap-4">
+        <div class="space-y-5 pt-4">
           <div>
-            <p class="text-sm font-medium text-zinc-800">WebP tiles</p>
-            <p class="mt-1 text-sm leading-6 text-zinc-600">
-              Include WebP tiles alongside the default JPG tiles.
-            </p>
-          </div>
-          <label
-            class="relative inline-flex min-h-8 cursor-pointer items-center"
-            class:cursor-not-allowed={isBusy}
-          >
+            <label
+              class="mb-2 block text-sm font-medium text-zinc-800"
+              for="image-id"
+            >
+              Image ID
+            </label>
             <input
-              class="peer sr-only"
-              type="checkbox"
+              id="image-id"
+              class="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm transition outline-none placeholder:text-zinc-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20 disabled:bg-zinc-100"
+              type="url"
+              required
               disabled={isBusy}
-              bind:checked={includeWebp}
-              onchange={() => {
-                resetOutput()
-                message = file
-                  ? 'Output format changed. Generate the pyramid again when ready.'
-                  : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
-              }}
+              placeholder="https://example.org/iiif/my-image"
+              bind:value={imageId}
             />
-            <span
-              class="h-7 w-12 rounded-full bg-zinc-300 transition peer-checked:bg-emerald-700 peer-disabled:opacity-50"
-            ></span>
-            <span
-              class="absolute left-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 peer-disabled:opacity-70"
-            ></span>
-          </label>
+          </div>
+
+          <div class="border-t border-zinc-100 pt-4">
+            <div class="mb-3 flex items-center justify-between gap-4">
+              <p class="text-sm font-medium text-zinc-800">Tile size</p>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              {#each tileSizes as size (size)}
+                <button
+                  class="min-h-10 rounded-md border px-3 text-sm font-semibold transition disabled:cursor-not-allowed"
+                  class:cursor-pointer={!isBusy}
+                  class:border-emerald-700={tileSize === size}
+                  class:bg-emerald-700={tileSize === size}
+                  class:text-white={tileSize === size}
+                  class:border-zinc-300={tileSize !== size}
+                  class:bg-white={tileSize !== size}
+                  class:text-zinc-800={tileSize !== size}
+                  type="button"
+                  disabled={isBusy}
+                  onclick={() => {
+                    tileSize = size
+                    resetOutput()
+                    message = file
+                      ? 'Tile size changed. Generate the pyramid again when ready.'
+                      : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
+                  }}
+                >
+                  {size} px
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="border-t border-zinc-100 pt-4">
+            <div class="mb-3 flex items-center justify-between gap-4">
+              <label class="text-sm font-medium text-zinc-800" for="quality"
+                >Tile quality</label
+              >
+              <span class="text-sm text-zinc-600 tabular-nums">{quality}</span>
+            </div>
+            <input
+              id="quality"
+              class="w-full accent-emerald-700"
+              type="range"
+              min="50"
+              max="100"
+              step="1"
+              disabled={isBusy}
+              bind:value={quality}
+            />
+          </div>
+
+          <div class="space-y-4 border-t border-zinc-100 pt-4">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-zinc-800">Full image</p>
+                <p class="mt-1 text-sm leading-6 text-zinc-600">
+                  Include the Level 0 <code>full/max/0/default.jpg</code>
+                  image, capped at {maxFullImageDimension}px.
+                </p>
+              </div>
+              <label
+                class="relative inline-flex min-h-8 cursor-pointer items-center"
+                class:cursor-not-allowed={isBusy}
+              >
+                <input
+                  class="peer sr-only"
+                  type="checkbox"
+                  disabled={isBusy}
+                  bind:checked={includeFullImage}
+                  onchange={() => {
+                    resetOutput()
+                    message = file
+                      ? 'Full image option changed. Generate the pyramid again when ready.'
+                      : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
+                  }}
+                />
+                <span
+                  class="h-7 w-12 rounded-full bg-zinc-300 transition peer-checked:bg-emerald-700 peer-disabled:opacity-50"
+                ></span>
+                <span
+                  class="absolute left-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 peer-disabled:opacity-70"
+                ></span>
+              </label>
+            </div>
+
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-zinc-800">WebP images</p>
+                <p class="mt-1 text-sm leading-6 text-zinc-600">
+                  Include WebP derivatives alongside the default JPG images.
+                </p>
+              </div>
+              <label
+                class="relative inline-flex min-h-8 cursor-pointer items-center"
+                class:cursor-not-allowed={isBusy}
+              >
+                <input
+                  class="peer sr-only"
+                  type="checkbox"
+                  disabled={isBusy}
+                  bind:checked={includeWebp}
+                  onchange={() => {
+                    resetOutput()
+                    message = file
+                      ? 'Output format changed. Generate the pyramid again when ready.'
+                      : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
+                  }}
+                />
+                <span
+                  class="h-7 w-12 rounded-full bg-zinc-300 transition peer-checked:bg-emerald-700 peer-disabled:opacity-50"
+                ></span>
+                <span
+                  class="absolute left-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 peer-disabled:opacity-70"
+                ></span>
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -674,7 +789,6 @@
           class="flex flex-col gap-3 border-b border-zinc-100 pb-4 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
-            <p class="text-sm font-semibold text-zinc-950">Pyramid builder</p>
             <p class="mt-1 text-sm leading-6 text-zinc-600">
               {file
                 ? `${file.name} is ready to process.`
@@ -756,7 +870,7 @@
               <dd class="font-medium tabular-nums">{levelCount}</dd>
             </div>
             <div class="bg-zinc-50 p-3">
-              <dt class="text-zinc-500">Tiles</dt>
+              <dt class="text-zinc-500">Files</dt>
               <dd class="font-medium tabular-nums">{tileCount}</dd>
             </div>
             <div class="bg-zinc-50 p-3">
