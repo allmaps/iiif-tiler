@@ -458,7 +458,10 @@
     property="og:description"
     content="Create static IIIF Image API 3 Level 0 tile pyramids in your browser."
   />
-  <meta property="og:image" content="/og-image.png" />
+  <meta
+    property="og:image"
+    content="https://iiif-tiler.allmaps.org/og-image.png"
+  />
   <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
@@ -473,7 +476,10 @@
     name="twitter:description"
     content="Create static IIIF Image API 3 Level 0 tile pyramids in your browser."
   />
-  <meta name="twitter:image" content="/og-image.png" />
+  <meta
+    name="twitter:image"
+    content="https://iiif-tiler.allmaps.org/og-image.png"
+  />
   <meta
     name="twitter:image:alt"
     content="IIIF Tiler logo and summary: create static Image API 3 Level 0 tile pyramids in your browser."
