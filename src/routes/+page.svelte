@@ -648,12 +648,17 @@
       <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <div class="space-y-5 pt-4">
           <div>
-            <label
-              class="mb-2 block text-sm font-medium text-zinc-800"
-              for="image-id"
+            <div
+              class="mb-2 flex flex-wrap items-baseline justify-between gap-2"
             >
-              Image ID
-            </label>
+              <label class="text-sm font-medium text-zinc-800" for="image-id">
+                Image ID <span class="text-red-700">*</span>
+              </label>
+              <p class="text-sm leading-6 text-zinc-600">
+                Required. This becomes the IIIF service ID in
+                <code>info.json</code>.
+              </p>
+            </div>
             <input
               id="image-id"
               class="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm transition outline-none placeholder:text-zinc-400 focus:border-emerald-700 focus:ring-2 focus:ring-emerald-700/20 disabled:bg-zinc-100"
@@ -699,7 +704,7 @@
           <div class="border-t border-zinc-100 pt-4">
             <div class="mb-3 flex items-center justify-between gap-4">
               <label class="text-sm font-medium text-zinc-800" for="quality"
-                >Tile quality</label
+                >JPG/WebP quality</label
               >
               <span class="text-sm text-zinc-600 tabular-nums">{quality}</span>
             </div>
@@ -721,7 +726,8 @@
                 <p class="text-sm font-medium text-zinc-800">Full image</p>
                 <p class="mt-1 text-sm leading-6 text-zinc-600">
                   Include the Level 0 <code>full/max/0/default.jpg</code>
-                  image, capped at {maxFullImageDimension}px.
+                  image, capped at {maxFullImageDimension}px. Tiles still use
+                  the original image dimensions.
                 </p>
               </div>
               <label
