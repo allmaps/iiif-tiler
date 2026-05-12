@@ -60,7 +60,7 @@
   }
 
   const tileSizes: TileSize[] = [256, 512, 1024]
-  const maxFullImageDimension = 4096
+  const maxFullImageDimension = 8192
 
   let file: File | undefined = $state()
   let status = $state<Status>('idle')
@@ -564,7 +564,7 @@
     <div class="space-y-7">
       <div class="space-y-3">
         <h1 class="max-w-2xl text-4xl leading-tight font-semibold md:text-5xl">
-          Drop an image. Download a IIIF tile pyramid.
+          Drop an image. Download a IIIF Level 0 tile pyramid.
         </h1>
         <p class="max-w-xl text-base leading-7 text-zinc-700">
           Images are processed in the browser with
@@ -785,10 +785,10 @@
       </div>
 
       <div
-        class="overflow-hidden rounded-lg border border-emerald-200 bg-white shadow-md shadow-emerald-950/5"
+        class="overflow-hidden rounded-lg border-2 border-emerald-600 bg-white shadow-md shadow-emerald-950/10"
       >
         <div
-          class="flex flex-col gap-3 border-b border-emerald-100 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between"
+          class="flex flex-col gap-3 border-b border-zinc-100 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
             <p class="mt-1 text-sm leading-6 text-zinc-600">
