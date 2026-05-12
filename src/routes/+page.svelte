@@ -324,7 +324,13 @@
                   kernel: 'lanczos3',
                   vscale: tileInfo.hs / tileInfo.hr
                 })
-          const region = `${tileInfo.xr},${tileInfo.yr},${tileInfo.wr},${tileInfo.hr}`
+          const region =
+            tileInfo.xr === 0 &&
+            tileInfo.yr === 0 &&
+            tileInfo.wr === image.width &&
+            tileInfo.hr === image.height
+              ? 'full'
+              : `${tileInfo.xr},${tileInfo.yr},${tileInfo.wr},${tileInfo.hr}`
           const size = `${tileInfo.ws},${tileInfo.hs}`
 
           try {
