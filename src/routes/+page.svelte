@@ -563,7 +563,7 @@
   >
     <div class="space-y-7">
       <div class="space-y-3">
-        <h1 class="max-w-2xl text-4xl leading-tight font-semibold md:text-6xl">
+        <h1 class="max-w-2xl text-4xl leading-tight font-semibold md:text-5xl">
           Drop an image. Download a IIIF tile pyramid.
         </h1>
         <p class="max-w-xl text-base leading-7 text-zinc-700">
@@ -605,7 +605,7 @@
       </div>
 
       <label
-        class="flex min-h-82 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 bg-white px-6 py-8 text-center shadow-sm transition hover:border-emerald-600 hover:bg-emerald-50/40"
+        class="flex min-h-64 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 bg-white px-6 py-6 text-center shadow-sm transition hover:border-emerald-600 hover:bg-emerald-50/40"
         class:cursor-wait={isBusy}
         for="image-input"
         ondragenter={preventDefaults}
@@ -623,13 +623,13 @@
 
         {#if previewUrl}
           <img
-            class="mb-5 h-44 w-full max-w-md rounded-md bg-zinc-100 object-contain"
+            class="mb-4 h-36 w-full max-w-md rounded-md bg-zinc-100 object-contain"
             src={previewUrl}
             alt={file ? `Preview of ${file.name}` : 'Selected image preview'}
           />
         {:else}
           <span
-            class="mb-5 grid h-16 w-16 place-items-center rounded-full bg-emerald-100 text-3xl text-emerald-800"
+            class="mb-4 grid h-14 w-14 place-items-center rounded-full bg-emerald-100 text-3xl text-emerald-800"
           >
             +
           </span>
@@ -784,9 +784,11 @@
         </div>
       </div>
 
-      <div class="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div
+        class="overflow-hidden rounded-lg border border-emerald-200 bg-white shadow-md shadow-emerald-950/5"
+      >
         <div
-          class="flex flex-col gap-3 border-b border-zinc-100 pb-4 sm:flex-row sm:items-center sm:justify-between"
+          class="flex flex-col gap-3 border-b border-emerald-100 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
             <p class="mt-1 text-sm leading-6 text-zinc-600">
@@ -797,7 +799,7 @@
           </div>
           <div class="flex gap-2">
             <button
-              class="inline-flex min-h-11 flex-1 items-center justify-center rounded-md bg-emerald-700 px-4 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45 sm:min-w-32"
+              class="inline-flex min-h-11 flex-1 items-center justify-center rounded-md bg-emerald-700 px-5 text-sm font-semibold text-white shadow-sm shadow-emerald-950/20 transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-45 sm:min-w-32"
               class:cursor-pointer={canGenerate}
               type="button"
               disabled={!canGenerate}
@@ -817,7 +819,7 @@
           </div>
         </div>
 
-        <div class="pt-4">
+        <div class="p-4">
           <div class="mb-3 flex items-center justify-between gap-4">
             <div class="flex min-w-0 items-center gap-2">
               <span
