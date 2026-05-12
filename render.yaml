@@ -4,10 +4,3 @@ services:
     runtime: static
     buildCommand: pnpm install --frozen-lockfile && pnpm build
     staticPublishPath: ./build
-    headers:
-      - path: /*
-        name: Cross-Origin-Embedder-Policy
-        value: require-corp
-      - path: /*
-        name: Cross-Origin-Opener-Policy
-        value: same-origin

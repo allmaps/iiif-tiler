@@ -1,63 +1,32 @@
 <script lang="ts">
-  import { zipSync } from 'fflate'
   import { onDestroy } from 'svelte'
-  import vipsHeifWasmUrl from 'wasm-vips/vips-heif.wasm?url'
-  import vipsJxlWasmUrl from 'wasm-vips/vips-jxl.wasm?url'
-  import vipsWasmUrl from 'wasm-vips/vips.wasm?url'
+  import TilerWorker from './tiler.worker?worker'
 
-  type Status =
-    | 'idle'
-    | 'loading-vips'
-    | 'reading'
-    | 'tiling'
-    | 'done'
-    | 'error'
-
-  type TilePlan = {
-    scaleFactor: number
-    levelWidth: number
-    levelHeight: number
-    columns: number
-    rows: number
-  }
-
-  type GeneratedTile = {
-    path: string
-    bytes: Uint8Array
-  }
-
-  type IiifTile = {
-    xr: number
-    yr: number
-    wr: number
-    hr: number
-    ws: number
-    hs: number
-  }
+  type Status = 'idle' | 'reading' | 'tiling' | 'done' | 'error'
 
   type TileSize = 256 | 512 | 1024
-  type TileFormat = 'jpg' | 'webp'
 
-  type VipsRuntime = {
-    Image: {
-      newFromBuffer(buffer: Uint8Array): VipsImage
-    }
-  }
-
-  type VipsImage = {
-    width: number
-    height: number
-    resize(scale: number, options?: Record<string, unknown>): VipsImage
-    extractArea(
-      left: number,
-      top: number,
-      width: number,
-      height: number
-    ): VipsImage
-    jpegsaveBuffer(options?: Record<string, unknown>): Uint8Array
-    webpsaveBuffer(options?: Record<string, unknown>): Uint8Array
-    delete(): void
-  }
+  type WorkerMessage =
+    | {
+        type: 'metadata'
+        width: number
+        height: number
+        tileCount: number
+        levelCount: number
+      }
+    | {
+        type: 'progress'
+        progress: number
+        message: string
+      }
+    | {
+        type: 'done'
+        zip: ArrayBuffer
+      }
+    | {
+        type: 'error'
+        message: string
+      }
 
   const tileSizes: TileSize[] = [256, 512, 1024]
   const maxFullImageDimension = 8192
@@ -83,11 +52,9 @@
   let imageId = $state('')
   let errorMessage = $state('')
 
-  let vipsPromise: Promise<VipsRuntime> | undefined
+  let worker: Worker | undefined
 
-  const isBusy = $derived(
-    status === 'loading-vips' || status === 'reading' || status === 'tiling'
-  )
+  const isBusy = $derived(status === 'reading' || status === 'tiling')
   const canGenerate = $derived(Boolean(file) && !isBusy)
   const canDownload = $derived(Boolean(zipUrl) && status === 'done')
   const progressLabel = $derived(`${Math.round(progress)}%`)
@@ -105,36 +72,6 @@
     outputSize = 0
     progress = 0
     errorMessage = ''
-  }
-
-  async function getVips() {
-    if (!crossOriginIsolated) {
-      throw new Error(
-        'wasm-vips requires cross-origin isolation. Serve this app with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: require-corp headers.'
-      )
-    }
-
-    vipsPromise ??= import('wasm-vips').then(async ({ default: Vips }) =>
-      Vips({
-        locateFile: (path: string) => {
-          if (path === 'vips.wasm') {
-            return vipsWasmUrl
-          }
-
-          if (path === 'vips-heif.wasm') {
-            return vipsHeifWasmUrl
-          }
-
-          if (path === 'vips-jxl.wasm') {
-            return vipsJxlWasmUrl
-          }
-
-          return path
-        }
-      })
-    )
-
-    return vipsPromise
   }
 
   function preventDefaults(event: DragEvent) {
@@ -164,7 +101,7 @@
     if (!selectedFile.type.startsWith('image/')) {
       status = 'error'
       errorMessage =
-        'Choose a JPG, PNG, WebP, TIFF, or another browser-readable image file.'
+        'Choose a JPG, PNG, WebP, or another browser-decodable image file.'
       return
     }
 
@@ -187,6 +124,8 @@
     if (zipUrl) {
       URL.revokeObjectURL(zipUrl)
     }
+
+    worker?.terminate()
   })
 
   async function generatePyramid() {
@@ -208,33 +147,80 @@
     }
 
     resetOutput()
-    status = 'loading-vips'
-    message = 'Loading libvips in WebAssembly...'
+    status = 'reading'
+    message = 'Starting worker...'
+
+    worker?.terminate()
+    const tilerWorker = new TilerWorker()
+    worker = tilerWorker
+
+    tilerWorker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+      const workerMessage = event.data
+
+      if (workerMessage.type === 'metadata') {
+        sourceWidth = workerMessage.width
+        sourceHeight = workerMessage.height
+        tileCount = workerMessage.tileCount
+        levelCount = workerMessage.levelCount
+        return
+      }
+
+      if (workerMessage.type === 'progress') {
+        progress = workerMessage.progress
+        message = workerMessage.message
+        if (status !== 'tiling') {
+          status = 'tiling'
+        }
+        return
+      }
+
+      if (workerMessage.type === 'done') {
+        const blob = new Blob([workerMessage.zip], { type: 'application/zip' })
+
+        zipUrl = URL.createObjectURL(blob)
+        zipName = `${fileStem(selectedFile.name)}-iiif-level0${selectedIncludeWebp ? '-webp' : ''}.zip`
+        outputSize = blob.size
+        progress = 100
+        status = 'done'
+        message = 'Tile pyramid is ready.'
+        tilerWorker.terminate()
+        if (worker === tilerWorker) {
+          worker = undefined
+        }
+        return
+      }
+
+      status = 'error'
+      errorMessage = workerMessage.message
+      message = 'Something went wrong while building the pyramid.'
+      tilerWorker.terminate()
+      if (worker === tilerWorker) {
+        worker = undefined
+      }
+    }
+
+    tilerWorker.onerror = (event) => {
+      status = 'error'
+      errorMessage = event.message || 'Could not create the tile pyramid.'
+      message = 'Something went wrong while building the pyramid.'
+      tilerWorker.terminate()
+      if (worker === tilerWorker) {
+        worker = undefined
+      }
+    }
 
     try {
-      const vips = await getVips()
-      status = 'reading'
-      message = 'Reading image metadata...'
-
-      const buffer = new Uint8Array(await selectedFile.arrayBuffer())
-      const image = vips.Image.newFromBuffer(buffer)
-      sourceWidth = image.width
-      sourceHeight = image.height
-
       status = 'tiling'
-      message = 'Rendering tiles...'
-
-      const result = await buildIiifZip(image, selectedFile.name, serviceId)
-      const zipBuffer = new ArrayBuffer(result.byteLength)
-      new Uint8Array(zipBuffer).set(result)
-      const blob = new Blob([zipBuffer], { type: 'application/zip' })
-
-      zipUrl = URL.createObjectURL(blob)
-      zipName = `${fileStem(selectedFile.name)}-iiif-level0${selectedIncludeWebp ? '-webp' : ''}.zip`
-      outputSize = blob.size
-      progress = 100
-      status = 'done'
-      message = 'Tile pyramid is ready.'
+      message = 'Rendering images...'
+      tilerWorker.postMessage({
+        file: selectedFile,
+        serviceId,
+        tileSize,
+        quality,
+        includeFullImage,
+        includeWebp,
+        maxFullImageDimension
+      })
     } catch (error) {
       status = 'error'
       errorMessage =
@@ -242,251 +228,11 @@
           ? error.message
           : 'Could not create the tile pyramid.'
       message = 'Something went wrong while building the pyramid.'
-    }
-  }
-
-  async function buildIiifZip(
-    image: VipsImage,
-    originalName: string,
-    serviceId: string
-  ) {
-    const selectedTileSize = tileSize
-    const selectedIncludeFullImage = includeFullImage
-    const selectedFormats: TileFormat[] = includeWebp
-      ? ['jpg', 'webp']
-      : ['jpg']
-    const plans = createTilePlans(image.width, image.height, selectedTileSize)
-    const scaleFactors = plans.map((plan) => plan.scaleFactor)
-    const fullImageSize = calculateMaxFullImageSize(image.width, image.height)
-    const fullImageIsLimited =
-      fullImageSize.width !== image.width ||
-      fullImageSize.height !== image.height
-
-    const tiles: GeneratedTile[] = []
-    const totalRegions = plans.reduce(
-      (sum, plan) => sum + plan.columns * plan.rows,
-      0
-    )
-    const fullImages = selectedIncludeFullImage ? selectedFormats.length : 0
-    const totalImages = totalRegions * selectedFormats.length + fullImages
-    let completedImages = 0
-
-    tileCount = totalImages
-    levelCount = plans.length
-
-    if (selectedIncludeFullImage) {
-      const fullImage = fullImageIsLimited
-        ? image.resize(fullImageSize.width / image.width, {
-            kernel: 'lanczos3',
-            vscale: fullImageSize.height / image.height
-          })
-        : image
-
-      for (const format of selectedFormats) {
-        tiles.push({
-          path: `full/max/0/default.${format}`,
-          bytes: encodeTile(fullImage, format, quality)
-        })
-
-        completedImages += 1
-        progress = (completedImages / totalImages) * 95
-      }
-
-      if (fullImage !== image) {
-        fullImage.delete()
-      }
-
-      await tickBrowser()
-    }
-
-    for (const plan of plans) {
-      for (let row = 0; row < plan.rows; row += 1) {
-        for (let column = 0; column < plan.columns; column += 1) {
-          const tileInfo = calculateIiifTile(
-            image.width,
-            image.height,
-            plan.scaleFactor,
-            selectedTileSize,
-            selectedTileSize,
-            column,
-            row
-          )
-          const sourceRegion = image.extractArea(
-            tileInfo.xr,
-            tileInfo.yr,
-            tileInfo.wr,
-            tileInfo.hr
-          )
-          const tile =
-            tileInfo.ws === tileInfo.wr && tileInfo.hs === tileInfo.hr
-              ? sourceRegion
-              : sourceRegion.resize(tileInfo.ws / tileInfo.wr, {
-                  kernel: 'lanczos3',
-                  vscale: tileInfo.hs / tileInfo.hr
-                })
-          const region =
-            tileInfo.xr === 0 &&
-            tileInfo.yr === 0 &&
-            tileInfo.wr === image.width &&
-            tileInfo.hr === image.height
-              ? 'full'
-              : `${tileInfo.xr},${tileInfo.yr},${tileInfo.wr},${tileInfo.hr}`
-          const size = `${tileInfo.ws},${tileInfo.hs}`
-
-          try {
-            for (const format of selectedFormats) {
-              tiles.push({
-                path: `${region}/${size}/0/default.${format}`,
-                bytes: encodeTile(tile, format, quality)
-              })
-
-              completedImages += 1
-              progress = (completedImages / totalImages) * 95
-            }
-          } finally {
-            if (tile !== sourceRegion) {
-              tile.delete()
-            }
-
-            sourceRegion.delete()
-          }
-
-          await tickBrowser()
-        }
+      tilerWorker.terminate()
+      if (worker === tilerWorker) {
+        worker = undefined
       }
     }
-
-    const info = {
-      '@context': 'http://iiif.io/api/image/3/context.json',
-      id: serviceId,
-      type: 'ImageService3',
-      protocol: 'http://iiif.io/api/image',
-      profile: 'level0',
-      width: image.width,
-      height: image.height,
-      ...(selectedIncludeFullImage && fullImageIsLimited
-        ? {
-            maxWidth: fullImageSize.width,
-            maxHeight: fullImageSize.height
-          }
-        : {}),
-      extraFormats: selectedFormats.includes('webp') ? ['webp'] : [],
-      preferredFormats: selectedFormats.includes('webp')
-        ? ['webp', 'jpg']
-        : ['jpg'],
-      sizes: selectedIncludeFullImage
-        ? [
-            {
-              width: fullImageSize.width,
-              height: fullImageSize.height
-            }
-          ]
-        : undefined,
-      tiles: [
-        {
-          width: selectedTileSize,
-          height: selectedTileSize,
-          scaleFactors
-        }
-      ]
-    }
-
-    const files: Record<string, Uint8Array> = {
-      'info.json': new TextEncoder().encode(
-        `${JSON.stringify(info, null, 2)}\n`
-      )
-    }
-
-    for (const tile of tiles) {
-      files[tile.path] = tile.bytes
-    }
-
-    message = 'Packing ZIP file...'
-    progress = 98
-
-    return zipSync(files, { level: 0 })
-  }
-
-  function calculateMaxFullImageSize(width: number, height: number) {
-    const scale = Math.min(1, maxFullImageDimension / Math.max(width, height))
-
-    return {
-      width: Math.max(1, Math.round(width * scale)),
-      height: Math.max(1, Math.round(height * scale))
-    }
-  }
-
-  function encodeTile(
-    image: VipsImage,
-    format: TileFormat,
-    selectedQuality: number
-  ) {
-    if (format === 'webp') {
-      return image.webpsaveBuffer({
-        Q: selectedQuality
-      })
-    }
-
-    return image.jpegsaveBuffer({
-      Q: selectedQuality,
-      optimize_coding: true,
-      background: [255, 255, 255]
-    })
-  }
-
-  function calculateIiifTile(
-    width: number,
-    height: number,
-    scaleFactor: number,
-    tileWidth: number,
-    tileHeight: number,
-    column: number,
-    row: number
-  ): IiifTile {
-    const xr = column * tileWidth * scaleFactor
-    const yr = row * tileHeight * scaleFactor
-    const wr = Math.min(tileWidth * scaleFactor, width - xr)
-    const hr = Math.min(tileHeight * scaleFactor, height - yr)
-    const ws =
-      xr + tileWidth * scaleFactor > width
-        ? Math.floor((width - xr + scaleFactor - 1) / scaleFactor)
-        : tileWidth
-    const hs =
-      yr + tileHeight * scaleFactor > height
-        ? Math.floor((height - yr + scaleFactor - 1) / scaleFactor)
-        : tileHeight
-
-    return { xr, yr, wr, hr, ws, hs }
-  }
-
-  function createTilePlans(
-    width: number,
-    height: number,
-    selectedTileSize: TileSize
-  ): TilePlan[] {
-    const plans: TilePlan[] = []
-    let scaleFactor = 1
-
-    while (true) {
-      const levelWidth = Math.max(1, Math.ceil(width / scaleFactor))
-      const levelHeight = Math.max(1, Math.ceil(height / scaleFactor))
-
-      plans.push({
-        scaleFactor,
-        levelWidth,
-        levelHeight,
-        columns: Math.ceil(levelWidth / selectedTileSize),
-        rows: Math.ceil(levelHeight / selectedTileSize)
-      })
-
-      if (levelWidth <= selectedTileSize && levelHeight <= selectedTileSize) {
-        break
-      }
-
-      scaleFactor *= 2
-    }
-
-    return plans
   }
 
   function fileStem(name: string) {
@@ -512,10 +258,6 @@
     link.href = zipUrl
     link.download = zipName
     link.click()
-  }
-
-  function tickBrowser() {
-    return new Promise((resolve) => setTimeout(resolve, 0))
   }
 </script>
 
@@ -573,20 +315,19 @@
           Drop an image. Download a IIIF Level 0 tile pyramid.
         </h1>
         <p class="max-w-xl text-base leading-7 text-zinc-700">
-          Images are processed in the browser with
+          Images are processed locally in a Web Worker with browser
           <a
             class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
-            href="https://github.com/kleisauke/wasm-vips"
+            href="https://developer.mozilla.org/en-US/docs/Web/API/Canvas_API"
             rel="noreferrer"
-            target="_blank">wasm-vips</a
+            target="_blank">Canvas APIs</a
           >. You can download the results as a ZIP file that contains an
           <a
             class="font-medium text-emerald-800 underline decoration-emerald-800/30 underline-offset-4 hover:decoration-emerald-800"
             href="https://iiif.io/api/image/3.0/"
             rel="noreferrer"
             target="_blank">Image API 3</a
-          >
-          <code>info.json</code> file with static JPG tiles (and optionally,
+          > <code>info.json</code> file with static JPG tiles (and optionally,
           <a
             href="https://caniuse.com/webp"
             rel="noreferrer"
@@ -644,8 +385,8 @@
           >{file?.name ?? 'Choose or drop an image'}</span
         >
         <span class="mt-2 max-w-sm text-sm leading-6 text-zinc-600">
-          JPG, PNG, WebP, TIFF, and other libvips-readable formats can be turned
-          into a downloadable pyramid.
+          JPG, PNG, WebP, and other browser-decodable image formats can be
+          turned into a downloadable pyramid.
         </span>
       </label>
     </div>
