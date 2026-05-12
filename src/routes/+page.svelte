@@ -448,6 +448,36 @@
     name="description"
     content="Create a static IIIF Image API Level 0 tile pyramid from an image in the browser."
   />
+  <link rel="canonical" href="https://iiif-tiler.allmaps.org/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://iiif-tiler.allmaps.org/" />
+  <meta property="og:site_name" content="IIIF Tiler" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:title" content="IIIF Tiler" />
+  <meta
+    property="og:description"
+    content="Create static IIIF Image API 3 Level 0 tile pyramids in your browser."
+  />
+  <meta property="og:image" content="/og-image.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta
+    property="og:image:alt"
+    content="IIIF Tiler logo and summary: create static Image API 3 Level 0 tile pyramids in your browser."
+  />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:url" content="https://iiif-tiler.allmaps.org/" />
+  <meta name="twitter:title" content="IIIF Tiler" />
+  <meta
+    name="twitter:description"
+    content="Create static IIIF Image API 3 Level 0 tile pyramids in your browser."
+  />
+  <meta name="twitter:image" content="/og-image.png" />
+  <meta
+    name="twitter:image:alt"
+    content="IIIF Tiler logo and summary: create static Image API 3 Level 0 tile pyramids in your browser."
+  />
 </svelte:head>
 
 <main class="min-h-screen bg-stone-50 text-zinc-950">

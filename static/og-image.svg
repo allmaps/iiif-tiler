@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="IIIF Tiler">
+  <rect width="1200" height="630" fill="#fafaf9" />
+  <rect x="64" y="64" width="1072" height="502" rx="28" fill="#ffffff" stroke="#e4e4e7" stroke-width="2" />
+  <g transform="translate(120 116)">
+    <rect width="152" height="152" rx="32" fill="#064e3b" />
+    <rect x="27" y="27" width="98" height="98" rx="13" fill="#ecfdf5" />
+    <path d="M27 59h98M27 92h98M59 27v98M92 27v98" stroke="#a7f3d0" stroke-width="7" />
+    <path d="M39 106l22-25 15 12 20-31 17 44H39z" fill="#059669" />
+    <circle cx="56" cy="54" r="10" fill="#f59e0b" />
+  </g>
+  <g transform="translate(340 134)">
+    <text x="0" y="68" fill="#18181b" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="72" font-weight="760">IIIF Tiler</text>
+    <text x="0" y="123" fill="#3f3f46" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="500">Create static Image API 3 Level 0</text>
+    <text x="0" y="162" fill="#3f3f46" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="30" font-weight="500">tile pyramids in your browser.</text>
+  </g>
+  <g transform="translate(120 342)">
+    <rect width="305" height="132" rx="16" fill="#ecfdf5" stroke="#bbf7d0" />
+    <text x="28" y="54" fill="#065f46" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="720">Drop an image</text>
+    <text x="28" y="91" fill="#047857" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">No upload required</text>
+  </g>
+  <g transform="translate(448 342)">
+    <rect width="305" height="132" rx="16" fill="#f0f9ff" stroke="#bae6fd" />
+    <text x="28" y="54" fill="#075985" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="720">Generate tiles</text>
+    <text x="28" y="91" fill="#0369a1" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">JPG plus optional WebP</text>
+  </g>
+  <g transform="translate(776 342)">
+    <rect width="305" height="132" rx="16" fill="#fffbeb" stroke="#fde68a" />
+    <text x="28" y="54" fill="#92400e" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="28" font-weight="720">Download ZIP</text>
+    <text x="28" y="91" fill="#b45309" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">Ready for static hosting</text>
+  </g>
+  <text x="120" y="532" fill="#71717a" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22">Powered by wasm-vips</text>
+</svg>
