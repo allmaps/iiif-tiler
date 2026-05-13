@@ -26,6 +26,7 @@ type WorkerRequest = {
   tileSize: TileSize
   quality: number
   includeFullImage: boolean
+  includeThumbnails: boolean
   includeWebp: boolean
   maxFullImageDimension: number
 }
@@ -55,6 +56,11 @@ type WorkerResponse =
 type GeneratedFile = {
   path: string
   bytes: Uint8Array
+}
+
+type Size = {
+  width: number
+  height: number
 }
 
 type WorkerScope = typeof self & {
@@ -95,12 +101,21 @@ async function buildIiifZip(options: WorkerRequest) {
   )
   const fullImageIsLimited =
     fullImageSize.width !== image.width || fullImageSize.height !== image.height
+  const thumbnailSizes = options.includeThumbnails
+    ? calculateThumbnailSizes(image.width, image.height, fullImageSize)
+    : []
+  const availableSizes = [
+    ...thumbnailSizes,
+    ...(options.includeFullImage ? [fullImageSize] : [])
+  ]
   const totalRegions = plans.reduce(
     (sum, plan) => sum + plan.columns * plan.rows,
     0
   )
   const fullImages = options.includeFullImage ? selectedFormats.length : 0
-  const totalImages = totalRegions * selectedFormats.length + fullImages
+  const thumbnailImages = thumbnailSizes.length * selectedFormats.length
+  const totalImages =
+    totalRegions * selectedFormats.length + fullImages + thumbnailImages
   let completedImages = 0
 
   workerScope.postMessage({
@@ -112,6 +127,35 @@ async function buildIiifZip(options: WorkerRequest) {
   } satisfies WorkerResponse)
 
   const generatedFiles: GeneratedFile[] = []
+
+  if (options.includeThumbnails) {
+    for (const thumbnailSize of thumbnailSizes) {
+      for (const format of selectedFormats) {
+        generatedFiles.push({
+          path: `full/${thumbnailSize.width},${thumbnailSize.height}/0/default.${format}`,
+          bytes: await encodeImage(
+            image,
+            {
+              xr: 0,
+              yr: 0,
+              wr: image.width,
+              hr: image.height,
+              ws: thumbnailSize.width,
+              hs: thumbnailSize.height
+            },
+            format,
+            options.quality
+          )
+        })
+
+        completedImages += 1
+        postProgress(
+          (completedImages / totalImages) * 95,
+          'Rendering images...'
+        )
+      }
+    }
+  }
 
   if (options.includeFullImage) {
     for (const format of selectedFormats) {
@@ -192,14 +236,7 @@ async function buildIiifZip(options: WorkerRequest) {
     preferredFormats: selectedFormats.includes('webp')
       ? ['webp', 'jpg']
       : ['jpg'],
-    sizes: options.includeFullImage
-      ? [
-          {
-            width: fullImageSize.width,
-            height: fullImageSize.height
-          }
-        ]
-      : undefined,
+    sizes: availableSizes.length ? availableSizes : undefined,
     tiles: [
       {
         width: options.tileSize,
@@ -286,6 +323,61 @@ function calculateMaxFullImageSize(
     width: Math.max(1, Math.round(width * scale)),
     height: Math.max(1, Math.round(height * scale))
   }
+}
+
+function calculateThumbnailSizes(
+  width: number,
+  height: number,
+  fullImageSize: Size
+) {
+  const maxSourceDimension = Math.max(width, height)
+  const maxFullImageDimension = Math.max(
+    fullImageSize.width,
+    fullImageSize.height
+  )
+  const thumbnailDimensions = calculateThumbnailDimensions(
+    maxFullImageDimension
+  )
+  const seen = new Set<string>()
+
+  return thumbnailDimensions.flatMap((maxThumbnailDimension) => {
+    if (
+      maxThumbnailDimension >= maxSourceDimension ||
+      maxThumbnailDimension >= maxFullImageDimension
+    ) {
+      return []
+    }
+
+    const scale = maxThumbnailDimension / maxSourceDimension
+    const size = {
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale))
+    }
+    const key = `${size.width}x${size.height}`
+
+    if (
+      seen.has(key) ||
+      (size.width === fullImageSize.width &&
+        size.height === fullImageSize.height)
+    ) {
+      return []
+    }
+
+    seen.add(key)
+    return [size]
+  })
+}
+
+function calculateThumbnailDimensions(maxFullImageDimension: number) {
+  const dimensions: number[] = []
+  let dimension = 512
+
+  while (dimension < maxFullImageDimension) {
+    dimensions.push(dimension)
+    dimension *= 2
+  }
+
+  return dimensions
 }
 
 function calculateIiifTile(

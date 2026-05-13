@@ -48,6 +48,7 @@
   let quality = $state(90)
   let tileSize = $state<TileSize>(512)
   let includeFullImage = $state(true)
+  let includeThumbnails = $state(true)
   let includeWebp = $state(false)
   let imageId = $state('')
   let errorMessage = $state('')
@@ -131,7 +132,6 @@
   async function generatePyramid() {
     const selectedFile = file
     const serviceId = imageId.trim()
-    const selectedIncludeWebp = includeWebp
 
     if (!selectedFile) {
       status = 'error'
@@ -178,7 +178,7 @@
         const blob = new Blob([workerMessage.zip], { type: 'application/zip' })
 
         zipUrl = URL.createObjectURL(blob)
-        zipName = `${fileStem(selectedFile.name)}-iiif-level0${selectedIncludeWebp ? '-webp' : ''}.zip`
+        zipName = `${fileStem(selectedFile.name)}-iiif-level0.zip`
         outputSize = blob.size
         progress = 100
         status = 'done'
@@ -218,6 +218,7 @@
         tileSize,
         quality,
         includeFullImage,
+        includeThumbnails,
         includeWebp,
         maxFullImageDimension
       })
@@ -490,6 +491,39 @@
                     resetOutput()
                     message = file
                       ? 'Full image option changed. Generate the pyramid again when ready.'
+                      : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
+                  }}
+                />
+                <span
+                  class="h-7 w-12 rounded-full bg-zinc-300 transition peer-checked:bg-emerald-700 peer-disabled:opacity-50"
+                ></span>
+                <span
+                  class="absolute left-1 h-5 w-5 rounded-full bg-white shadow transition peer-checked:translate-x-5 peer-disabled:opacity-70"
+                ></span>
+              </label>
+            </div>
+
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-zinc-800">Thumbnails</p>
+                <p class="mt-1 text-sm leading-6 text-zinc-600">
+                  Include full-region thumbnails and list them in
+                  <code>sizes</code> in <code>info.json</code>.
+                </p>
+              </div>
+              <label
+                class="relative inline-flex min-h-8 cursor-pointer items-center"
+                class:cursor-not-allowed={isBusy}
+              >
+                <input
+                  class="peer sr-only"
+                  type="checkbox"
+                  disabled={isBusy}
+                  bind:checked={includeThumbnails}
+                  onchange={() => {
+                    resetOutput()
+                    message = file
+                      ? 'Thumbnail option changed. Generate the pyramid again when ready.'
                       : 'Drop an image to create a static IIIF Image API Level 0 pyramid.'
                   }}
                 />
